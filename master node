@@ -1,0 +1,59 @@
+import socket
+import hashlib
+import string
+import itertools
+import pickle
+import struct
+import time
+import threading
+
+HOST = '0.0.0.0'
+PORT = 5000
+MAX_WORKERS = 2
+
+target_password = input("Enter password to crack: ")
+max_length = int(input("Enter max password length: "))
+hash_function = hashlib.md5
+target_hash = hash_function(target_password.encode()).hexdigest()
+
+print(f"Target hash: {target_hash}")
+
+charset = string.ascii_lowercase + string.digits
+workers = []
+chunks = []
+
+def split_charset(charset, num_parts):
+    avg = len(charset) // num_parts
+    return [charset[i * avg: (i + 1) * avg] for i in range(num_parts - 1)] + [charset[(num_parts - 1) * avg:]]
+
+def send_msg(sock, msg):
+    msg = struct.pack('>I', len(msg)) + msg
+    sock.sendall(msg)
+
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.bind((HOST, PORT))
+server.listen(MAX_WORKERS)
+
+start_time = time.time()
+print(f"Master listening on {HOST}:{PORT}")
+
+for i in range(MAX_WORKERS):
+    conn, addr = server.accept()
+    print(f"[+] Worker {addr} connected. Total: {i+1}")
+    chunk = split_charset(charset, MAX_WORKERS)[i]
+    chunks.append(chunk)
+    data = pickle.dumps((target_hash, chunk, max_length, chunk))
+    send_msg(conn, data)
+    workers.append(conn)
+
+for conn in workers:
+    result = conn.recv(1024).decode()
+    if result != "Not found":
+        print(f"[✓] Password cracked by worker: {result}")
+        break
+
+for conn in workers:
+    conn.close()
+
+server.close()
+print(f"\n[⏱️] Total time taken: {time.time() - start_time:.2f} seconds")
